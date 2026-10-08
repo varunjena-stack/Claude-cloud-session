@@ -6,7 +6,7 @@
   const C = window.CUES;
   const S = C.slams, T = C.themes;
   const orb = V.components.orb, shell = V.components.shell, tr = V.components.transcript;
-  const prajna = V.components.prajna, organs = V.components.organs;
+  const prajna = V.components.prajna, missions = V.components.missions;
   const memory = V.components.memory, research = V.components.research;
   const voice = Object.fromEntries(C.voice.map((v) => [v.id, v]));
 
@@ -112,8 +112,8 @@
   const FULL = { cx: 590, cy: 310, z: 1.5 };
   const SHOTS = {
     talks: { cx: 338, cy: 262, z: 2.5 },
-    masters: { cx: 878, cy: 398, z: 2.55 },
-    delegates: { cx: 520, cy: 292, z: 2.15 },
+    masters: { cx: 878, cy: 382, z: 2.55 },
+    delegates: { cx: 770, cy: 352, z: 1.2 },
     stops: { cx: 330, cy: 270, z: 2.45 },
   };
   function applyCam(ctx, cam) {
@@ -142,15 +142,15 @@
     { text: '[WAKE] “Hey Veda” · listening', at: 9.0 },
     { text: '[PRAJNA] curriculum · 12 nodes', at: S.masters + 0.1 },
     { text: '[PRAJNA] node 6/12 · re-run (0.79 < 0.85)', at: S.masters + 0.7 },
-    { text: '[MISSION] 5 dispatched · 2 queued', at: S.delegates + 0.4 },
+    { text: '[MISSION] 4 dispatched · corner windows', at: S.delegates + 0.4 },
     { text: '[KILL] stopped by voice', at: C.stop },
     { text: '[PRAJNA] mastery 0.91 · done', at: C.drop + 1.5 },
   ];
   const QUEUE = [
     { lane: 'PRAJNA', label: 'Bitcoin · 12 nodes', status: 'running', progress: 0.42, at: S.masters + 0.05 },
-    { lane: 'MISSION', label: 'Summarise inbox', status: 'running', progress: 0.3, at: S.delegates + 0.1 },
-    { lane: 'MISSION', label: 'Draft follow-ups', status: 'running', progress: 0.2, at: S.delegates + 0.25 },
-    { lane: 'RESEARCH', label: 'Solid-state batteries', status: 'running', progress: 0.6, at: S.delegates + 0.4 },
+    { lane: 'RESEARCH', label: 'Solid-state batteries', status: 'running', progress: 0.6, at: S.delegates + 0.1 },
+    { lane: 'MISSION', label: 'Q4 launch checklist', status: 'running', progress: 0.3, at: S.delegates + 0.22 },
+    { lane: 'MISSION', label: 'Fix the export script', status: 'running', progress: 0.2, at: S.delegates + 0.34 },
   ];
   function queueAt(t) {
     return QUEUE.map((q, i) => {
@@ -161,16 +161,14 @@
       });
     });
   }
+  // S115: each background Mission gets its own always-on-top corner window (S109: CODE / PLAN / RESEARCH)
   const MISSIONS = [
-    { at: S.delegates + 0.06, dur: 0.85, outcome: 'merge', label: 'Inbox' },
-    { at: S.delegates + 0.14, dur: 1.05, outcome: 'merge', label: 'Follow-ups' },
-    { at: S.delegates + 0.22, dur: 0.75, outcome: 'fail', label: 'Calendar' },
-    { at: S.delegates + 0.30, dur: 1.2, outcome: 'merge', label: 'Notes' },
-    { at: S.delegates + 0.38, dur: 1.3, outcome: 'merge', label: 'Research' },
-    { at: S.delegates + 0.46, dur: 1.0, outcome: 'merge', label: 'Brief' },
-    { at: S.delegates + 0.54, dur: 0.9, outcome: 'merge', label: 'Files' },
+    { kind: 'RESEARCH', title: 'Battery failure modes', at: S.delegates + 0.08, dur: 1.25, outcome: 'done' },
+    { kind: 'PLAN', title: 'Q4 launch checklist', at: S.delegates + 0.2, dur: 0.75, outcome: 'done' },
+    { kind: 'CODE', title: 'Fix the export script', at: S.delegates + 0.32, dur: 0.95, outcome: 'done' },
+    { kind: 'RESEARCH', title: 'Notion vs Obsidian sync', at: S.delegates + 0.44, dur: 3, outcome: 'done' },
   ];
-  const prajnaOpenAt = (t) => E.inOutCubic(prog(t, S.masters + 0.05, S.masters + 0.45)) * (1 - E.inOutCubic(prog(t, C.drop + 3.0, C.drop + 3.6)));
+  const prajnaOpenAt = (t) => E.inOutCubic(prog(t, S.masters + 0.05, S.masters + 0.45)) * (1 - E.inOutCubic(prog(t, C.drop + 0.6, C.drop + 1.1)));
 
   // draw the whole app (window units; caller sets the camera)
   function drawApp(ctx, t, theme, o = {}) {
@@ -185,7 +183,6 @@
     tr.drawLog(ctx, t, { rect: lay.log, theme, lines: LOG });
     prajna.draw(ctx, t - S.masters, { rect: lay.prajna, theme, subject: 'Bitcoin', open, dur: 1.45, rerun: 5 });
     if (o.orb !== false) drawOrb(ctx, t, { x: lay.orb.cx, y: lay.orb.cy, r: lay.orb.r, theme });
-    organs.draw(ctx, t, { cx: lay.orb.cx, cy: lay.orb.cy, r: lay.orb.r, theme, missions: MISSIONS });
     return lay;
   }
 
@@ -203,7 +200,7 @@
     ctx.letterSpacing = '-3px';
     ctx.textBaseline = 'alphabetic';
     let x = 160;
-    const px = 168;
+    const px = 190;
     words.forEach(([w, at], i) => {
       ctx.font = V.display(px, 520);
       const ww = ctx.measureText(w + ' ').width;
@@ -216,7 +213,7 @@
         ctx.translate(tx, ty + (1 - k) * 40);
         ctx.scale(1 - pull * 0.85, 1 - pull * 0.85);
         ctx.font = V.display(px, lerp(300, 520, k));
-        ctx.fillStyle = i === 1 ? th.text : th.muted;
+        ctx.fillStyle = th.text;
         ctx.fillText(w, 0, 0);
         ctx.restore();
       }
@@ -240,7 +237,7 @@
       ctx.restore();
     }
     // the orb: a hot point that blooms on the ignition
-    const ig = t < C.ignite ? 0 : 1 - Math.pow(1 - clamp((t - C.ignite) / 0.9), 3);
+    const ig = clamp((t - C.ignite) / 1.0); // linear: the orb's overshoot/bloom/flash are built in
     drawOrb(ctx, t, { x: HERO.x, y: HERO.y, r: HERO.r, theme: 'dark', ignite: ig, glow: t < C.ignite ? 0.6 + pull * 1.2 : 1 + 0.8 * Math.exp(-(t - C.ignite) * 3) });
   }
 
@@ -296,7 +293,7 @@
   function sceneTalks(ctx, t) {
     V.fill(ctx, V.theme('dark').bg);
     ctx.save(); applyCam(ctx, whip(t, S.talks, SHOTS.talks, FULL)); drawApp(ctx, t, 'dark'); ctx.restore();
-    headline(ctx, t, S.talks + 0.12, 'Talks', 1170, 610, { px: 168 });
+    headline(ctx, t, S.talks + 0.12, 'Talks', 1180, 250, { px: 168 });
   }
   function sceneExplainer(ctx, t, comp, t0, word) {
     const th = V.theme('dark');
@@ -307,18 +304,22 @@
   function sceneMasters(ctx, t) {
     V.fill(ctx, V.theme('dark').bg);
     ctx.save(); applyCam(ctx, whip(t, S.masters, SHOTS.masters)); drawApp(ctx, t, 'dark'); ctx.restore();
-    headline(ctx, t, S.masters + 0.1, 'Masters', 130, 610, { px: 168 });
+    headline(ctx, t, S.masters + 0.1, 'Masters', 120, 1000, { px: 168 });
   }
   function sceneDelegates(ctx, t) {
     V.fill(ctx, V.theme('dark').bg);
-    ctx.save(); applyCam(ctx, whip(t, S.delegates, SHOTS.delegates)); drawApp(ctx, t, 'dark'); ctx.restore();
-    headline(ctx, t, S.delegates + 0.1, 'Delegates', 130, 930, { px: 150 });
+    const cam = whip(t, S.delegates, SHOTS.delegates, SHOTS.masters);
+    ctx.save(); applyCam(ctx, cam); drawApp(ctx, t, 'dark'); ctx.restore();
+    const lay = shell.layout({ prajnaOpen: prajnaOpenAt(t) });
+    const from = { x: W / 2 + (lay.orb.cx - cam.cx) * cam.z, y: H / 2 + (lay.orb.cy - cam.cy) * cam.z };
+    missions.draw(ctx, t, { theme: 'dark', x: W - 44, y: 44, scale: 1.45, missions: MISSIONS.map((m) => Object.assign({ from }, m)) });
+    headline(ctx, t, S.delegates + 0.1, 'Delegates', 120, 1000, { px: 150 });
   }
   function sceneStops(ctx, t) {
     V.fill(ctx, V.theme('dark').bg);
     const settle = t >= C.stop ? Math.exp(-(t - C.stop) * 12) * Math.sin((t - C.stop) * 60) * 4 : 0; // a tiny jolt on the stop
     ctx.save(); ctx.translate(settle, 0); applyCam(ctx, whip(t, S.stops, SHOTS.stops)); drawApp(ctx, t, 'dark'); ctx.restore();
-    headline(ctx, t, C.stop, 'Stops', 1170, 930, { px: 168 });
+    headline(ctx, t, C.stop, 'Stops', 1180, 250, { px: 168 });
   }
 
   // theme flips: each new theme wipes in as a circle from the theme pill
@@ -330,8 +331,9 @@
     const prevName = i === 0 ? 'dark' : FLIPS[i - 1][0];
     const k = E.inOutExpo(clamp((t - t0) / 0.55));
     const pill = (shell.layout({}).pill) || { x: 958, y: 26 };
-    const drift = prog(t, C.drop, C.collapse);
-    const cam = { cx: FULL.cx + drift * 8, cy: FULL.cy, z: FULL.z * (1 + drift * 0.05) };
+    const drift = E.inOutCubic(prog(t, C.drop, C.collapse));
+    const z = 1.32 * (1 + drift * 0.03);
+    const cam = { cx: FULL.cx + drift * 6, cy: (540 - 44) / z, z };
     const pillFrom = i === 0 ? 2 : FLIPS[i - 1][2];
     const pillNow = lerp(pillFrom, pillIdx, E.inOutCubic(clamp((t - t0) / 0.3)));
     const draw = (theme) => {
@@ -347,15 +349,16 @@
       ctx.restore();
     }
     const lab = name[0].toUpperCase() + name.slice(1);
-    headline(ctx, t, t0 + 0.08, lab, 130, 1000, { px: 92, theme: name });
+    headline(ctx, t, t0 + 0.08, lab, W / 2 + (0 - cam.cx) * cam.z + 4, 1018, { px: 104, theme: name });
   }
 
   function sceneCollapse(ctx, t) {
     const th = V.theme('dark');
     const u = prog(t, C.collapse, C.endcard);
     const lay = shell.layout({ prajnaOpen: 0 });
-    const z = FULL.z * Math.exp(Math.log(4.2) * E.inCubic(u));
-    const cam = { cx: lerp(FULL.cx, lay.orb.cx, E.outCubic(u)), cy: lerp(FULL.cy, lay.orb.cy, E.outCubic(u)), z };
+    const z0 = 1.32 * 1.03;
+    const z = z0 * Math.exp(Math.log(5) * E.inCubic(u));
+    const cam = { cx: lerp(FULL.cx + 6, lay.orb.cx, E.outCubic(u)), cy: lerp(496 / z0, lay.orb.cy, E.outCubic(u)), z };
     V.fill(ctx, th.bg);
     ctx.save(); applyCam(ctx, cam);
     ctx.save(); ctx.globalAlpha = 1 - E.inCubic(clamp(u * 1.6)); drawApp(ctx, t, 'dark', { orb: false }); ctx.restore();
@@ -402,13 +405,13 @@
     const cta = E.outExpo(clamp((t - C.tagline) / 0.5));
     if (cta > 0) {
       ctx.save(); ctx.globalAlpha = clamp(cta * 1.5);
-      ctx.font = V.ui(32, 600);
-      const label = 'Coming soon to Mac';
       ctx.letterSpacing = '0.5px';
+      ctx.font = V.ui(38, 600);
+      const label = 'Coming soon to Mac';
       const lw = ctx.measureText(label).width;
-      V.text(ctx, label, bx + 10, by + 186, V.ui(32, 600), th.accent);
+      V.text(ctx, label, bx + 10, by + 196, V.ui(38, 600), th.accent);
       ctx.fillStyle = th.accent;
-      ctx.fillRect(bx + 10, by + 204, lw * cta, 2.5);
+      ctx.fillRect(bx + 10, by + 216, lw * cta, 3);
       ctx.restore();
     }
   }

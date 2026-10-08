@@ -1,0 +1,224 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>VEDAOS lab — all components</title>
+<style>html,body{margin:0;background:#241d19;overflow:hidden}canvas{display:block;width:1920px;height:1080px}</style>
+</head><body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="../lib/core.js"></script>
+<script src="../lib/components/orb.js"></script>
+<script src="../lib/components/shell.js"></script>
+<script src="../lib/components/transcript.js"></script>
+<script src="../lib/components/memory.js"></script>
+<script src="../lib/components/research.js"></script>
+<script src="../lib/components/prajna.js"></script>
+<script src="../lib/components/organs.js"></script>
+<script>
+// Integration lab: every component loaded on one page (same order as the films), composed the way a film
+// uses them. Query params (all optional):
+//   theme=dark|cream|light   scene=app|memory|research   open=0..1 (prajnaOpen; default 1)   marks=1 (layout guides)
+//   samples=N (motion-blur samples, default 6)
+// Drive it with lab/all.mjs (stills + ctx probes) or `node render.mjs --page lab/all.html --perf`.
+// The app scene: shell ×1.5 at translate(75,75); orb at layout.orb; organs around it; transcript in the
+// Conversation card, drawLog in the log strip, prajna in the Prajna card. Every component draws with the
+// documented API and the shared layout from shell.layout().
+(function () {
+  'use strict';
+  const Q = new URLSearchParams(location.search);
+  const THEME = Q.get('theme') || 'dark';
+  const SCENE = Q.get('scene') || 'app';
+  const OPEN = Q.has('open') ? V.clamp(+Q.get('open')) : 1;
+  const MARKS = Q.get('marks') === '1';
+  const C = V.components;
+  const CAM = { x: 75, y: 75, s: 1.5 };
+
+  // ---------------------------------------------------------------- one continuous story (seconds)
+  const TURNS = [
+    { who: 'user', text: 'What’s on my plate today?', at: 0.2 },
+    { who: 'veda', text: 'Two calls, the NDA review, and climbing at six.', at: 0.8 },
+    { who: 'user', text: 'Give me the quarterly numbers.', at: 2.6 },
+    { who: 'veda', text: 'Revenue is up nine percent, but the margin story is more interesting because the mix shifted', at: 3.2 },
+    { who: 'user', text: 'Stop.', at: 5.55 },
+    { who: 'proactive', text: 'Prajna finished Bitcoin — mastery 0.91.', at: 7.4, dur: 1.4 },
+  ];
+  const STOP = 5.65;
+  const LOG = [
+    { text: '[WAKE] “Hey Veda” · listening', at: 0.1 },
+    { text: '[PRAJNA] curriculum · 12 nodes', at: 1.1 },
+    { text: '[MISSION] 5 dispatched · 2 queued', at: 2.5 },
+    { text: '[PRAJNA] node 6/12 · re-run (0.79 < 0.85)', at: 4.75 },
+    { text: '[KILL] stopped by voice', at: STOP },
+    { text: '[PRAJNA] mastery 0.91 · done', at: 9.2 },
+  ];
+  const QUEUE = [
+    { lane: 'PRAJNA', label: 'Bitcoin · 12 nodes', status: 'running', progress: 0.42, at: 1.0 },
+    { lane: 'MISSION', label: 'Summarise inbox', status: 'done', progress: 0.3, at: 2.4, statusAt: 4.2 },
+    { lane: 'MISSION', label: 'Book the climbing gym', status: 'failed', progress: 0.55, at: 2.55, statusAt: 4.5 },
+    { lane: 'RESEARCH', label: 'Solid-state batteries', status: 'running', progress: null, at: 2.7 },
+    { lane: 'MISSION', label: 'Draft follow-ups to the NDA thread', status: 'queued', at: 2.85 },
+  ];
+  const PRAJNA_T0 = 1.0, PRAJNA_DUR = 8;            // local t 3.65–4.13 is the below-threshold hold
+  const MISSIONS = C.organs.DEMO.map((m) => Object.assign({}, m, { at: m.at + 2.3 }));
+  const ORB_KEYS = [
+    { t: -1, state: 'idle' }, { t: 0.2, state: 'listening' }, { t: 0.8, state: 'speaking' }, { t: 2.6, state: 'listening' },
+    { t: 3.2, state: 'speaking' }, { t: STOP, state: 'idle' }, { t: 7.4, state: 'speaking' },
+  ];
+
+  // the app frame as a list of named component calls (window units; caller has applied the camera)
+  function appCalls(t, theme) {
+    const lay = C.shell.layout({ prajnaOpen: OPEN });
+    const s = C.orb.timeline(ORB_KEYS, t, 0.45);
+    return [
+      ['shell', (ctx) => C.shell.draw(ctx, t, { theme, state: s.state, stateLabel: true, prajnaOpen: OPEN, queue: QUEUE })],
+      ['transcript', (ctx) => C.transcript.draw(ctx, t, { rect: lay.conversation, theme, turns: TURNS, stopAt: STOP })],
+      ['transcript.drawLog', (ctx) => C.transcript.drawLog(ctx, t, { rect: lay.log, theme, lines: LOG })],
+      ['prajna', (ctx) => C.prajna.draw(ctx, t - PRAJNA_T0, { rect: lay.prajna, theme, subject: 'Bitcoin', dur: PRAJNA_DUR })],
+      ['orb', (ctx) => C.orb.draw(ctx, t, { x: lay.orb.cx, y: lay.orb.cy, r: lay.orb.r, theme, params: s.params, phase: s.phase })],
+      ['organs', (ctx) => C.organs.draw(ctx, t, { cx: lay.orb.cx, cy: lay.orb.cy, r: lay.orb.r, theme, missions: MISSIONS, labels: true })],
+    ];
+  }
+  function explainerCalls(t, theme, name) {
+    return [[name, (ctx) => C[name].draw(ctx, t, { theme, dur: 9, top: 210 })]];
+  }
+  function calls(t, theme) { return SCENE === 'app' ? appCalls(t, theme) : explainerCalls(t, theme, SCENE); }
+  const withCam = SCENE === 'app';
+
+  function marks(ctx, theme) {
+    const th = V.theme(theme), lay = C.shell.layout({ prajnaOpen: OPEN });
+    ctx.save();
+    ctx.strokeStyle = th.fail; ctx.lineWidth = 0.75;
+    const cross = (x, y, r) => { ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.moveTo(x, y - r); ctx.lineTo(x, y + r); ctx.stroke(); };
+    cross(lay.orb.cx, lay.orb.cy, 12);
+    if (lay.pill) { cross(lay.pill.x, lay.pill.y, 20); ctx.strokeRect(lay.pill.x - lay.pill.w / 2, lay.pill.y - lay.pill.h / 2, lay.pill.w, lay.pill.h); }
+    for (const k of ['conversation', 'log', 'queue', 'prajna']) { const r = lay[k]; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
+    ctx.restore();
+  }
+
+  function drawFrame(ctx, t) {
+    V.fill(ctx, V.theme(THEME).bg);
+    ctx.save();
+    if (withCam) { ctx.translate(CAM.x, CAM.y); ctx.scale(CAM.s, CAM.s); }
+    for (const [, fn] of calls(t, THEME)) fn(ctx);
+    if (MARKS && withCam) marks(ctx, THEME);
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- probes (used by lab/all.mjs)
+  const KEYS = ['globalAlpha', 'globalCompositeOperation', 'filter', 'textAlign', 'textBaseline', 'font', 'letterSpacing',
+    'wordSpacing', 'fontKerning', 'direction', 'lineWidth', 'lineCap', 'lineJoin', 'miterLimit', 'lineDashOffset',
+    'fillStyle', 'strokeStyle', 'imageSmoothingEnabled', 'shadowBlur', 'shadowColor', 'shadowOffsetX', 'shadowOffsetY'];
+  function snap(ctx) {
+    const o = {};
+    for (const k of KEYS) o[k] = String(ctx[k]);
+    const m = ctx.getTransform();
+    o.transform = [m.a, m.b, m.c, m.d, m.e, m.f].map((v) => +v.toFixed(6)).join(',');
+    o.lineDash = ctx.getLineDash().join(',');
+    return o;
+  }
+  const scratch = document.createElement('canvas');
+  scratch.width = V.W; scratch.height = V.H;
+  const sctx = scratch.getContext('2d', { willReadFrequently: true });
+  function resetCtx(ctx) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+  }
+  // 1) state leaks: every listed ctx property and the transform must be unchanged by each component call;
+  // 2) clip leaks: after the call, a full-canvas fill must reach every probe point.
+  window.probeLeaks = function (t, theme = THEME) {
+    const out = [];
+    for (const [name, fn] of calls(t, theme)) {
+      resetCtx(sctx); sctx.clearRect(0, 0, V.W, V.H);
+      sctx.save();
+      if (withCam) { sctx.translate(CAM.x, CAM.y); sctx.scale(CAM.s, CAM.s); }
+      sctx.globalAlpha = 0.9;                                   // a caller fade must survive too
+      const a = snap(sctx);
+      let err = null;
+      try { fn(sctx); } catch (e) { err = String(e && e.stack || e); }
+      const b = snap(sctx);
+      const diff = Object.keys(a).filter((k) => a[k] !== b[k]).map((k) => `${k}: ${a[k]} -> ${b[k]}`);
+      sctx.restore();
+      // clip leak: fill everything opaque magenta with identity transform and sample a grid
+      sctx.save(); resetCtx(sctx);
+      sctx.fillStyle = '#ff00ff'; sctx.fillRect(0, 0, V.W, V.H);
+      let clipped = 0;
+      for (let y = 5; y < V.H; y += 107) for (let x = 5; x < V.W; x += 191) {
+        const d = sctx.getImageData(x, y, 1, 1).data;
+        if (!(d[0] === 255 && d[1] === 0 && d[2] === 255 && d[3] === 255)) clipped++;
+      }
+      sctx.restore();
+      out.push({ name, diff, clipped, err });
+    }
+    return out;
+  };
+  // 3) inherited-state dependence: render each call once from a clean ctx and once after a "dirty" caller
+  // (text alignment, baseline, font, letterSpacing, line style, dash, colours left behind); count differing pixels.
+  // What a careless caller might leave behind (each tried on its own, so a failure names the property).
+  const DIRT = {
+    textAlign: (c) => { c.textAlign = 'center'; },
+    textBaseline: (c) => { c.textBaseline = 'middle'; },
+    font: (c) => { c.font = 'bold 31px serif'; },
+    letterSpacing: (c) => { c.letterSpacing = '3px'; },
+    wordSpacing: (c) => { c.wordSpacing = '4px'; },
+    lineWidth: (c) => { c.lineWidth = 7; },
+    lineCap: (c) => { c.lineCap = 'square'; },
+    lineJoin: (c) => { c.lineJoin = 'bevel'; c.miterLimit = 2; },
+    lineDash: (c) => { c.setLineDash([5, 3]); c.lineDashOffset = 2; },
+    colours: (c) => { c.fillStyle = '#00ff00'; c.strokeStyle = '#0000ff'; },
+    imageSmoothing: (c) => { c.imageSmoothingEnabled = false; },
+    direction: (c) => { c.direction = 'rtl'; },
+  };
+  function render(fn, dirt) {
+    resetCtx(sctx); sctx.clearRect(0, 0, V.W, V.H);
+    sctx.save();
+    if (withCam) { sctx.translate(CAM.x, CAM.y); sctx.scale(CAM.s, CAM.s); }
+    if (dirt) dirt(sctx);
+    fn(sctx);
+    sctx.restore();
+    return sctx.getImageData(0, 0, V.W, V.H).data;
+  }
+  function compare(a, b) {
+    let n = 0, maxd = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let i = 0; i < a.length; i += 4) {
+      const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]), Math.abs(a[i + 3] - b[i + 3]));
+      if (d > 2) { n++; maxd = Math.max(maxd, d); const p = i >> 2, x = p % V.W, y = (p / V.W) | 0; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    }
+    return { pixels: n, maxDelta: maxd, bbox: n ? [x0, y0, x1, y1] : null };
+  }
+  window.probeDirty = function (t, theme = THEME) {
+    const out = [];
+    for (const [name, fn] of calls(t, theme)) {
+      const a = render(fn, null).slice();
+      const deps = [];
+      for (const [prop, dirt] of Object.entries(DIRT)) {
+        const r = compare(a, render(fn, dirt));
+        if (r.pixels) deps.push(Object.assign({ prop }, r));
+      }
+      out.push({ name, deps });
+    }
+    return out;
+  };
+  // 4) history independence: frame at t after a different seek history must be identical
+  window.frameHash = function () {
+    const d = document.getElementById('c').getContext('2d').getImageData(0, 0, V.W, V.H).data;
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < d.length; i += 3) h = Math.imul(h ^ d[i], 16777619) >>> 0;
+    return h.toString(16);
+  };
+  // per-component cost inside the composed frame (ms per draw, median of n)
+  window.probeCost = function (t, n = 30, theme = THEME) {
+    const out = {};
+    for (const [name, fn] of calls(t, theme)) {
+      const xs = [];
+      for (let i = 0; i < n; i++) {
+        resetCtx(sctx); sctx.save();
+        if (withCam) { sctx.translate(CAM.x, CAM.y); sctx.scale(CAM.s, CAM.s); }
+        const a = performance.now(); fn(sctx); sctx.getImageData(0, 0, 1, 1); xs.push(performance.now() - a);
+        sctx.restore();
+      }
+      xs.sort((p, q) => p - q);
+      out[name] = +xs[n >> 1].toFixed(2);
+    }
+    return out;
+  };
+
+  window.ready = V.mount(drawFrame, { samples: +(Q.get('samples') || 6), duration: 12 });
+})();
+</script>
+</body></html>
