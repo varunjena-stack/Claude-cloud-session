@@ -328,6 +328,7 @@
   }
   // the moment the readout passes the threshold (or null)
   function crossTime(S, o) {
+    if (o.threshold == null) return null;
     for (let i = 0; i < S.cyc.length; i++) {
       const a = i ? o.saturation[i - 1] : 0, b = o.saturation[i];
       if (b >= o.threshold && a < o.threshold) {
@@ -693,6 +694,7 @@
         if (v > sv + 0.008) ctx.fillRect(x0 + w * sv - 1.5, my - 4, 3, 8);
       }
     }
+    if (thr == null) { ctx.restore(); return; }
     const tx = x0 + w * thr;
     if (tc != null && t > tc) {
       const r = prog(t, tc, 0.7 * S.ms + 0.1);
@@ -778,7 +780,8 @@
     r.synthesis = Object.assign({}, DEFAULTS.synthesis, o.synthesis || {});
     r.dur = Math.max(0.6, +r.dur || DEFAULTS.dur);
     r.top = +r.top >= 0 ? +r.top : DEFAULTS.top;
-    r.threshold = clamp(+r.threshold || DEFAULTS.threshold);
+    // null = no threshold mark: Research Panther has a saturation monitor, not a stopping threshold
+    r.threshold = o.threshold === null ? null : clamp(+r.threshold || DEFAULTS.threshold);
     r.gap = r.gap ? String(r.gap) : '';
     r.bonus = r.bonus ? String(r.bonus) : '';
     r.hasBonus = !!(r.gap && r.bonus && r.saturation.length >= 2);

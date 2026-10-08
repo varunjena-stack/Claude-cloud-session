@@ -209,8 +209,10 @@
     V.duration = duration;
     window.seek = function (t) {
       t = V.clamp(t, 0, duration - 1e-6);
-      for (let i = 0; i < samples; i++) {
-        const ts = t + (i / samples) * (shutter / V.FPS);
+      // samples may be a function of t: fast whips/wipes need more sub-frames or the blur steps into copies
+      const n = typeof samples === 'function' ? samples(t) : samples;
+      for (let i = 0; i < n; i++) {
+        const ts = t + (i / n) * (shutter / V.FPS);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
         drawFrame(ctx, ts);
