@@ -4,3 +4,5 @@ out/lab/
 out/*-video.mp4
 out/still-*
 out/*.png
+out/*/
+!out/style/

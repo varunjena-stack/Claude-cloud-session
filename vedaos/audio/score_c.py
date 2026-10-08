@@ -73,7 +73,9 @@ def tt(dur):
 
 
 # ---------------------------------------------------------------- instruments
-def kick(g=1.0):
+def kick(g=1.0, phone=True):
+    if phone:  # a parallel saturated copy with 100-400 Hz harmonics so the beat survives phone speakers
+        return kick(g, False) + 0.22 * np.tanh(hp(kick(g, False), 100) * 4) * g
     t = tt(0.5)
     f = 48 + 95 * np.exp(-t / 0.03)
     body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.2)
@@ -177,6 +179,17 @@ def impact(g=1.0, size=1.0):
     return np.tanh((boom + air) * 1.2) * g
 
 
+def hat_open():
+    t = tt(0.25)
+    return hp(rng.standard_normal(len(t)), 7000, 4) * np.exp(-t / 0.08)
+
+
+def rev_cymbal(dur=0.5):
+    t = tt(dur)
+    s = hp(rng.standard_normal(len(t)), 5000) * np.exp(-t / 0.18)
+    return s[::-1] * 0.6
+
+
 def air(dur=0.25, tau=0.05):
     """bright, fast transient: makes a visual hit audible within a frame"""
     t = tt(dur)
@@ -227,7 +240,7 @@ def duck(t, depth=0.7, rel=0.12):
 
 # --- 0-2: the wake: voice slot at 0.12, chime when "Veda." lands, ignition on 1.0
 place("music", pad(["D3", "A3", "E4"], 2.2, 900, attack=1.2) * 0.35, 0.0, 0.8)
-place("fx", chime(note("A5")), 0.5, 0.7, pan=0.1)
+place("fx", chime(note("A5")), 0.75, 0.6, pan=0.1)
 place("fx", swell(PROG[0], 0.9), C["ignite"] - 0.9, 0.9)
 place("fx", impact(0.8, 1.2), C["ignite"], 0.8)
 place("fx", air(0.4, 0.08), C["ignite"], 0.4)
@@ -243,17 +256,23 @@ def groove(t0, t1, drop=False):
         t = n * BEAT
         place("drums", kick(), t, 0.9)
         duck(t)
-        if n % 2 == 1 and (drop or t >= 6.0):
+        if n % 2 == 1 and (drop or t >= 5.0):
             place("drums", clap() if drop else rim(), t, 0.6 if drop else 0.55, pan=0.05)
-        if drop or t >= 4.0:
+        if drop or t >= 3.0:
             for k in range(4):
-                place("drums", shaker(1.0 if k == 2 else 0.55), t + k * BEAT / 4, 0.28, pan=0.35 * (-1) ** k)
+                place("drums", shaker(1.0 if k == 2 else 0.55), t + k * BEAT / 4, 0.34, pan=0.35 * (-1) ** k)
+        if drop:  # top layer after the drop: off-beat open hat
+            place("drums", hat_open(), t + BEAT / 2, 0.22, pan=-0.2)
     for b0 in np.arange(t0, t1 - 1e-6, 4 * BEAT):
         bi = bar_of(b0)
         Lb = min(4 * BEAT, t1 - b0)
         place("music", pad(PROG[bi], Lb + 0.2, 1900, attack=0.05) * 0.8, b0, 1.0)
         for e in range(int(round(Lb / BEAT))):  # sub on the off-beats
             place("music", sub(note(ROOT_NOTE[bi]), BEAT * 0.9), b0 + e * BEAT + BEAT / 2, 0.55)
+        if not drop and b0 >= 2.0:  # mid-register 8th figure: carries on a phone speaker
+            tones = PROG[bi][1:]
+            for j in range(int(round(Lb / (BEAT / 2)))):
+                place("music", epiano(note(tones[(j * 2) % len(tones)]) * 2, 0.3, 0.5), b0 + j * BEAT / 2, 0.16, pan=0.3 * (-1) ** j)
         if drop:
             tones = PROG[bi][1:]
             for j in range(int(round(Lb / (BEAT / 2)))):
@@ -270,13 +289,13 @@ place("fx", air(0.3, 0.06), 2.0, 0.3)
 
 # state cues (2-8s): one signature per state, on the un-ducked stab bus, each with an air transient
 sig = {
-    "idle": lambda t: place("stab", pluck(note("D3"), 0.6), t, 1.2),
+    "idle": lambda t: (place("stab", pluck(note("D4"), 0.6), t, 1.0), place("stab", pluck(note("D5"), 0.5), t, 0.5)),
     "listening": lambda t: (place("stab", pluck(note("A4"), 0.4), t, 0.9), place("stab", pluck(note("D5"), 0.4), t + 0.06, 0.8)),
     "thinking": lambda t: [place("stab", pluck(note("F#5"), 0.12), t + k * BEAT / 4, 0.5) for k in range(3)],
     "speaking": lambda t: None,  # the voice is the cue ("I'm here.")
     "researching": lambda t: place("stab", chord(["A4", "E5", "B5"], 0.9, 0.9, 1.6), t, 0.8),
     "focus": lambda t: (place("stab", kick(0.6)[:int(0.08 * SR)], t, 0.5),
-                        place("stab", lp(chord(["D3", "A3"], 0.6, 0.8, 0.2), 1200), t, 1.0)),
+                        place("stab", chord(["D4", "A4"], 0.6, 0.8, 0.2), t, 0.8)),
 }
 for name, t in C["states"].items():
     sig[name](t)
@@ -284,7 +303,9 @@ for name, t in C["states"].items():
     place("fx", whoosh(0.18, 2000, 9000, "rise"), t - 0.18, 0.12)
 
 # pull back into the app window: a rise that peaks BEFORE the slam, then the slam is a fresh hit
-place("fx", whoosh(1.4, 200, 9000), C["pullback"], 0.4)
+place("fx", whoosh(1.5, 200, 9000), C["pullback"], 0.4)
+place("stab", chord(["F#4", "A4", "D5"], 0.8, 0.8, 0.6), C["category"], 0.7)
+place("fx", air(0.3, 0.05), C["category"], 0.3)
 place("fx", swell(PROG[0], 1.0), S["talks"] - 1.0, 0.6)
 
 # feature slams: chord on the stab bus + air + a rise that ENDS on the hit
@@ -299,6 +320,17 @@ for k, (name, t) in enumerate(S.items()):
             place("music", pluck(note(nm) * 2), t + 0.25 + j * BEAT / 2, 0.22, pan=(j - 1) * 0.4)
 place("fx", impact(0.6, 0.8), S["talks"], 0.7)
 
+# the bed closes down into the Stop (12 kHz -> 2 kHz), so the drop opens it back up
+_a, _b = int(17.5 * SR), int(C["stop"] * SR)
+for b in ("music", "stab"):
+    seg = bus[b][_a:_b].copy()
+    out = np.zeros_like(seg)
+    blkn = 2048
+    for j in range(0, len(seg), blkn):
+        fc = 12000 * (2000 / 12000) ** (j / max(1, len(seg)))
+        pre = max(0, j - 4096)
+        out[j:j + blkn] = lp(seg[pre:j + blkn], fc)[j - pre:j - pre + blkn]
+    bus[b][_a:_b] = out
 # STOP: everything cuts at the stop — a dry kill, one beat of true silence, then the drop
 g0, g1 = int(C["stop"] * SR), int(C["drop"] * SR)
 for b in ("drums", "music", "stab", "fx"):
@@ -317,8 +349,16 @@ for k, (name, t) in enumerate(T.items()):
         place("fx", whoosh(0.4, 600, 12000, "rise"), t - 0.4, 0.3)
     place("fx", air(0.3, 0.05), t, 0.3)
     place("stab", pluck(note(["F#5", "A5", "C#6"][k]), 0.3), t, 0.5)
+    if t > C["drop"] + 0.01:
+        place("fx", rev_cymbal(0.5), t - 0.5, 0.5)
+        place("fx", impact(0.45, 0.5), t, 0.5)
     place("music", shimmer([["F#5", "A5"], ["A5", "C#6"], ["D5", "F#5"]][k], 1.8), t, 0.9)
 
+# collapse: rising sweep + rising orb tone into the end card; a tick where the chrome cuts out
+place("fx", whoosh(1.0, 300, 11000), C["collapse"], 0.45)
+_tt = tt(1.0)
+place("fx", np.sin(2 * np.pi * np.cumsum(220 * 2 ** (_tt * 2)) / SR) * (_tt ** 2) * 0.12, C["collapse"], 1.0)
+place("fx", air(0.12, 0.02), C["collapse"] + 0.5, 0.35)
 # collapse into a point, then the end card
 place("fx", swell(["D3", "A3", "D4", "F#4"], 1.0), C["endcard"] - 1.0, 0.9)
 place("fx", impact(1.0, 1.6), C["endcard"], 0.95)
@@ -326,12 +366,15 @@ place("music", pad(["D3", "A3", "C#4", "E4", "F#4", "A4"], DUR - C["endcard"], 2
 place("stab", chord(["D4", "F#4", "A4", "C#5", "E5", "A5"], 3.5, 1.0, 1.0), C["endcard"], 0.9)
 place("fx", air(0.3, 0.05), C["tagline"], 0.3)
 place("stab", pluck(note("A5"), 0.6), C["tagline"], 0.7)
+for tb in (28.0, 29.0):
+    place("stab", pluck(note("A4"), 0.6), tb, 0.35)
 for k, nm in enumerate(["A5", "C#6", "E6", "F#6"]):
     place("fx", chime(note(nm), 2.0), C["tagline"] + k * BEAT / 2, 0.22, pan=0.3 - k * 0.2)
 
 # ---------------------------------------------------------------- voice stems (optional)
 env_frames = np.zeros(int(DUR * 60))
 voices_found = []
+lines = {}
 for v in C["voice"]:
     path = os.path.join(HERE, "voice", v["id"] + ".wav")
     if not os.path.exists(path):
@@ -345,6 +388,9 @@ for v in C["voice"]:
         cut = int((C["stop"] - v["at"]) * SR)  # the kill switch: Veda stops mid-word
         x = x[:cut] * np.concatenate([np.ones(max(0, cut - 240)), np.linspace(1, 0, min(240, cut))])
     voices_found.append(v["id"])
+    lines[v["id"]] = {"at": v["at"], "dur": round(len(x) / SR, 3)}
+    if v["id"] == "talks" and v["at"] + len(x) / SR > S["remembers"] - 0.1:
+        print(f"WARNING: the Talks reply runs to {v['at'] + len(x) / SR:.2f}s — over the Remembers cut; re-render it faster")
     if v["who"] == "veda":  # orb drives off the raw voice, like the product (fixed reference, not normalised)
         i0 = int(v["at"] * 60)
         hopn = SR // 60
@@ -366,16 +412,19 @@ g = (vabs[:nb * blk].reshape(nb, blk).max(1) > 10 ** (-45 / 20)).astype(float)
 g = np.concatenate([g[40:], np.zeros(40)])
 env = np.zeros(nb)
 for i in range(1, nb):
-    a = 1 - np.exp(-1 / (15 if g[i] > env[i - 1] else 300))
+    a = 1 - np.exp(-1 / (15 if g[i] > env[i - 1] else 100))
     env[i] = env[i - 1] + a * (g[i] - env[i - 1])
-vduck = np.repeat(10 ** (-10 * env / 20), blk)
+HITS = [C["ignite"], C["category"], *C["states"].values(), *S.values(), C["stop"], C["drop"], *T.values(), C["collapse"], C["endcard"], C["tagline"]]
+for h in HITS:  # hits are never ducked: release fully 30 ms before every cue, hold through its attack
+    i0, i1 = max(0, int((h - 0.03) * 1000)), min(nb, int((h + 0.12) * 1000))
+    env[i0:i1] = 0
+vduck = np.repeat(10 ** (-6 * env / 20), blk)
 vduck = np.concatenate([vduck, np.full(N - len(vduck), vduck[-1] if len(vduck) else 1.0)])
 
 # ---------------------------------------------------------------- mix
 tline = np.arange(N) / SR
-arc_db = np.interp(tline, [0, 2, 7.9, 9.9, 18.5, 18.99, 19.0, 25.0, 25.01, DUR], [0, -3, -2, 0, 0.5, 0.5, 2.5, 2.5, 0, 0])
-bed = (bus["drums"] * 0.9 + bus["music"] * (side[:, None] * 0.6 + 0.4) + bus["stab"] + bus["fx"]) * 10 ** (arc_db / 20)[:, None]
-bed *= vduck[:, None]
+arc_db = np.interp(tline, [0, 2, 7.9, 9.9, 18.5, 18.99, 19.0, 25.0, 25.01, DUR], [0, -2, -1, 0, 0.5, 0.5, 2.5, 3.5, 0.5, 0.5])
+bed = ((bus["drums"] * 0.9 + bus["music"] * (side[:, None] * 0.6 + 0.4)) * vduck[:, None] + bus["stab"] + bus["fx"]) * 10 ** (arc_db / 20)[:, None]
 ir_n = int(1.6 * SR)
 ir = rng.standard_normal((ir_n, 2)) * np.exp(-np.arange(ir_n) / SR / 0.45)[:, None]
 ir = lp(ir, 5000)
@@ -398,7 +447,7 @@ for _ in range(5):
     if tp > CEIL:
         mix = np.tanh(mix / CEIL * 0.98) * CEIL * 0.98
 sf.write(os.path.join(HERE, "c.wav"), mix.astype(np.float32), SR, subtype="PCM_24")
-json.dump({"fps": 60, "rms": [round(float(v), 3) for v in env_frames], "voices": voices_found},
+json.dump({"fps": 60, "rms": [round(float(v), 3) for v in env_frames], "voices": voices_found, "lines": lines},
           open(os.path.join(HERE, "envelope.json"), "w"))
 tp = np.abs(resample_poly(mix, 4, 1, axis=0)).max()
 print(json.dumps({"lufs": round(meter.integrated_loudness(mix), 2), "true_peak_dbtp": round(20 * np.log10(tp), 2),

@@ -10,7 +10,12 @@
 //   - proactive speech (Veda started it herself) streams the same way but muted + fake-oblique behind a
 //     thin left rule;
 //   - stopAt (kill switch): the turn streaming at stopAt freezes on its current word, gets " —", eases to
-//     muted, and a small "Stopped" chip (filled square) opens up under it;
+//     muted, and a small "Stopped" chip (filled square) opens up under it. stopLabel sets the chip text;
+//     stopLabel '' (or false) means no chip at all and no room opened for it;
+//   - stopHard: true makes the stop a hard cut: the turn freezes on the EXACT letter reached at stopAt (the
+//     current word is not finished; the partial word is cut at a glyph boundary), the caret is gone on the
+//     stopAt frame, accent -> muted within 2 frames, and the em dash lands at once, closed up to the frozen
+//     letter ("Most failures start at th—");
 //   - newest at the bottom; once content overflows, the view scrolls up — the scroll is the sum of every
 //     line's critically-damped growth, so it is smooth and a pure function of t; lines leaving the top pass
 //     under a soft per-pixel scroll mask (vertical gradient fill, so it works on any background).
@@ -34,6 +39,7 @@
   const WPS = 3.2;          // default speech rate, words / second
   const SKEW = -0.2;        // fake oblique (≈11°) for proactive speech — the bundled Inter has no italic
   const DIM = 0.5;          // user turn strength until the reply begins
+  const FEATHER = 7;        // streaming wipe feather (px)
 
   // ------------------------------------------------------------------ colour (tokens only, parsed once)
   function parseCol(s) {
@@ -134,7 +140,8 @@
     const gapLoose = o.gapLoose != null ? +o.gapLoose : 15;  // between exchanges / around proactive
     const wps = +o.wps || WPS;
     const stopAt = o.stopAt != null && isFinite(+o.stopAt) ? +o.stopAt : null;
-    const stopLabel = o.stopLabel != null ? String(o.stopLabel) : 'Stopped';
+    const stopLabel = o.stopLabel === false ? '' : o.stopLabel != null ? String(o.stopLabel) : 'Stopped';
+    const stopHard = o.stopHard === true;
     const innerW = R.w - padX * 2;
     const viewH = R.h - padTop - padBottom;
     const lightTheme = th.name !== 'dark';
@@ -190,6 +197,26 @@
           let k = 0;
           for (let w = 0; w < words.length; w++) if (b.wt[w].s <= stopAt) k = w;
           b.cut = k + 1; b.stopped = true;
+          if (stopHard) {
+            // hard cut: keep exactly the glyphs the wipe's half-alpha point had passed at stopAt
+            // (a glyph counts once that point is past its advance centre); clip at that glyph boundary
+            const wk = b.wt[k], chars = Array.from(words[k]);
+            const ue = smooth(prog(stopAt, wk.s, wk.s + wk.wipe));
+            const reach = -1 + (ctx.measureText(words[k]).width + FEATHER + 2) * ue - FEATHER / 2;
+            let n = 0, pw = 0;
+            for (let c = 0; c < chars.length; c++) {
+              const nw = ctx.measureText(chars.slice(0, c + 1).join('')).width;
+              if ((pw + nw) / 2 > reach) break;
+              n = c + 1; pw = nw;
+            }
+            if (n === 0 && k > 0) b.frozen = { i: k - 1, s: words[k - 1], w: ctx.measureText(words[k - 1]).width };
+            else {
+              if (n === 0) { n = 1; pw = ctx.measureText(chars[0]).width; }
+              b.frozen = { i: k, s: chars.slice(0, n).join(''), w: pw };
+            }
+            // from the stop frame on, nothing after the frozen glyph exists (before it, the stream runs as usual)
+            if (t >= stopAt) b.cut = b.frozen.i + 1;
+          }
         }
         b.lineE = [];
         for (let li = 0; li < lines.length; li++) {
@@ -204,16 +231,24 @@
           // the em dash goes after the frozen word; it may need its own line
           ctx.font = b.font;
           const dashW = ctx.measureText('—').width;
+          const fi = b.frozen ? b.frozen.i : b.cut - 1;
           let li = 0, wi = 0;
-          for (let a = 0; a < lines.length; a++) for (let c = 0; c < lines[a].length; c++) if (lines[a][c].i === b.cut - 1) { li = a; wi = c; }
+          for (let a = 0; a < lines.length; a++) for (let c = 0; c < lines[a].length; c++) if (lines[a][c].i === fi) { li = a; wi = c; }
           const lw = lines[li][wi];
-          if (lw.x + lw.w + space + dashW <= innerW) b.dash = { li, x: lw.x + lw.w + space };
+          if (b.frozen) {
+            // hard cut: closed up to the frozen letter (spaced only after punctuation); may borrow a little of
+            // the side padding rather than strand the dash alone on the next line
+            const gap = /[\p{L}\p{N}'’"”)]$/u.test(b.frozen.s) ? 0 : space;
+            const dx = lw.x + b.frozen.w + gap;
+            b.dash = dx + dashW <= innerW + Math.max(0, padX - 5) ? { li, x: dx } : { li: li + 1, x: 0 };
+          } else if (lw.x + lw.w + space + dashW <= innerW) b.dash = { li, x: lw.x + lw.w + space };
           else b.dash = { li: li + 1, x: 0 };
           b.lastLine = b.dash.li;
           const de = settle(t - stopAt);
           if (b.dash.li >= b.lineE.length) { b.lineE.push(de); hh += LH * de; }
-          b.chipE = settle(t - stopAt);            // room for the chip opens with the dash
-          b.chipH = 27;
+          // room for the chip opens with the dash (none at all without a label)
+          b.chipH = stopLabel ? 27 : 0;
+          b.chipE = b.chipH ? settle(t - stopAt) : 0;
           hh += b.chipH * b.chipE;
         }
       }
@@ -279,8 +314,10 @@
   function drawStream(ctx, b, top, K, capTop) {
     const { t, P, LH, size, baseOff, stopAt, stopLabel, x0, A0 } = K;
     const pro = b.who === 'proactive';
-    const F = 7; // wipe feather
-    const muteK = b.stopped ? smooth(prog(t, stopAt, stopAt + 0.4)) : 0;
+    const F = FEATHER;
+    const fz = b.stopped && b.frozen && t >= stopAt ? b.frozen : null;   // hard cut in effect
+    const muteK = !b.stopped ? 0 : b.frozen ? prog(t, stopAt, stopAt + 0.03) : smooth(prog(t, stopAt, stopAt + 0.4));
+    const dashA = !b.stopped ? 0 : b.frozen ? (t >= stopAt ? 1 : 0) : outCubic(prog(t, stopAt + 0.06, stopAt + 0.26));
     const col = pro ? P.muted : mixCol(P.accent, P.muted, muteK);
     const xs = x0 + b.indent;
     ctx.font = b.font;
@@ -315,6 +352,13 @@
         if (w.i >= b.cut) break;
         const wt = b.wt[w.i];
         if (t < wt.s) break;
+        if (fz) {
+          // hard cut: everything before the frozen glyph solid, the frozen word clipped at its glyph boundary
+          ctx.fillStyle = solid;
+          ctx.globalAlpha = A0;
+          ctx.fillText(w.i === fz.i ? fz.s : w.s, w.x, 0);
+          continue;
+        }
         let u = prog(t, wt.s, wt.s + wt.wipe);
         if (b.stopped) u = Math.max(u, prog(t, stopAt, stopAt + 0.08));
         const ue = smooth(u);
@@ -335,19 +379,19 @@
         const sx = c > 0 ? line[c - 1].x + line[c - 1].w + 2 : w.x;
         caret = { x: Math.max(sx, Math.min(w.x + w.w + 2, w.x - 1 + (w.w + F + 2) * ue)), bl };
       }
-      if (b.stopped && b.dash && b.dash.li === li) {
-        ctx.globalAlpha = A0 * outCubic(prog(t, stopAt + 0.06, stopAt + 0.26));
+      if (b.stopped && b.dash && b.dash.li === li && dashA > 0) {
+        ctx.globalAlpha = A0 * dashA;
         ctx.fillStyle = solid;
         ctx.fillText('—', b.dash.x, 0);
       }
       ctx.restore();
     }
     // the dash may sit alone on the line after the frozen word
-    if (b.stopped && b.dash && (b.dash.li >= b.lines.length || b.lines[b.dash.li][0].i >= b.cut)) {
+    if (b.stopped && b.dash && dashA > 0 && (b.dash.li >= b.lines.length || b.lines[b.dash.li][0].i >= b.cut)) {
       const ly = top + b.dash.li * LH, bl = ly + baseOff;
       ctx.save();
       ctx.translate(xs, bl);
-      ctx.globalAlpha = A0 * outCubic(prog(t, stopAt + 0.06, stopAt + 0.26));
+      ctx.globalAlpha = A0 * dashA;
       ctx.fillStyle = K.fill(col, ly + capTop, bl);
       ctx.fillText('—', b.dash.x, 0);
       ctx.restore();
@@ -355,7 +399,7 @@
 
     // soft caret: thin rounded bar, breathing while she speaks, gone when the stream ends / is stopped
     if (caret) {
-      const live = b.stopped ? 1 - prog(t, stopAt, stopAt + 0.1) : 1 - prog(t, b.end + 0.2, b.end + 0.55);
+      const live = b.stopped ? (b.frozen ? (t >= stopAt ? 0 : 1) : 1 - prog(t, stopAt, stopAt + 0.1)) : 1 - prog(t, b.end + 0.2, b.end + 0.55);
       if (live > 0) {
         const br = 0.62 + 0.38 * (0.5 + 0.5 * Math.cos((t - b.at) * Math.PI * 2 * 1.25));
         ctx.save();
@@ -370,7 +414,7 @@
     }
 
     // "Stopped" chip under the frozen turn
-    if (b.stopped && b.chipE > 0) {
+    if (b.stopped && stopLabel && b.chipE > 0) {
       const cy = top + (Math.max(b.lastLine, 0) + 1) * LH + 4;
       if (cy < K.yMax) {
         const fs = Math.max(9, size * 0.8);
