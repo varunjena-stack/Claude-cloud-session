@@ -1,0 +1,20 @@
+{
+  "name": "motion-studio",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "score": "python3 audio/score.py && python3 audio/beats.py",
+    "contact": "node render.mjs --contact",
+    "render": "node render.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "playwright": "^1.56.1"
+  },
+  "type": "module"
+}
