@@ -1,0 +1,22 @@
+{
+  "bpm": 120,
+  "duration": 30,
+  "hey": 0.0,
+  "ignite": 1.0,
+  "states": { "idle": 2.0, "listening": 3.0, "thinking": 4.0, "speaking": 5.0, "researching": 6.0, "focus": 7.0 },
+  "pullback": 8.0,
+  "slams": { "talks": 10.0, "remembers": 11.5, "researches": 13.0, "masters": 14.5, "delegates": 16.0, "stops": 17.5 },
+  "stop": 18.5,
+  "drop": 19.0,
+  "themes": { "light": 19.0, "cream": 21.0, "dark": 23.0 },
+  "collapse": 25.0,
+  "endcard": 26.0,
+  "tagline": 27.0,
+  "voice": [
+    { "id": "hey_veda", "at": 0.12, "who": "user", "text": "Hey Veda." },
+    { "id": "here", "at": 5.05, "who": "veda", "text": "I'm here." },
+    { "id": "talks", "at": 10.2, "who": "veda", "text": "Two calls, one deadline." },
+    { "id": "stops_veda", "at": 17.55, "who": "veda", "text": "The quarterly numbers show a steady rise in" },
+    { "id": "stop", "at": 18.15, "who": "user", "text": "Stop." }
+  ]
+}

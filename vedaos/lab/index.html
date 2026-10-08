@@ -1,0 +1,36 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>VEDAOS lab</title>
+<style>html,body{margin:0;background:#241d19;overflow:hidden}canvas{display:block;width:1920px;height:1080px}</style>
+</head><body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="../lib/core.js"></script>
+<script>
+// Lab: render ONE component (plus optional deps) on a flat theme background.
+// window.LAB = { component, fn = 'draw', opts = {}, deps = [], samples = 6 } (injected by render.mjs).
+// Only the requested files load, so a half-written component elsewhere can't break this page.
+(function () {
+  const L = window.LAB || { component: 'orb', opts: {} };
+  V.deferReady = true;
+  const load = (name) => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = '../lib/components/' + name + '.js';
+    s.onload = res;
+    s.onerror = () => rej(new Error('cannot load component ' + name));
+    document.body.appendChild(s);
+  });
+  window.ready = (async () => {
+    for (const f of [...(L.deps || []), L.component]) await load(f);
+    if (!V.components[L.component]) throw new Error('component did not register: ' + L.component);
+    return V.mount(function (ctx, t) {
+      const th = V.theme((L.opts && L.opts.theme) || 'dark');
+      V.fill(ctx, th.bg);
+      // optional lab camera: opts._view = {x, y, s} -> translate(x,y) scale(s) before drawing
+      const vw = (L.opts && L.opts._view) || null;
+      if (vw) { ctx.save(); ctx.translate(vw.x || 0, vw.y || 0); ctx.scale(vw.s || 1, vw.s || 1); }
+      V.components[L.component][L.fn || 'draw'](ctx, t, L.opts || {});
+      if (vw) ctx.restore();
+    }, { samples: L.samples || 6, duration: L.duration || 20 });
+  })();
+})();
+</script>
+</body></html>
