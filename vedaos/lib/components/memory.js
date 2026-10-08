@@ -109,11 +109,14 @@
   }
 
   // ------------------------------------------------------------------ type helpers
+  // o.sizes {tier, meta, fact} lets a film enlarge the small text for phones. SZ is (re)set from o at the top of
+  // every draw() before anything reads it, so output still depends only on (t, o).
+  let SZ = { tier: 28, meta: 26, fact: 34 };
   const F = {
     q: (w) => V.display(58, w),   // same as research's question (Fraunces 58 / 460): one type role, one style
-    tier: (w) => V.ui(28, w),
-    meta: () => V.ui(26, 450),
-    fact: () => V.ui(34, 500),
+    tier: (w) => V.ui(SZ.tier, w),
+    meta: () => V.ui(SZ.meta, 450),
+    fact: () => V.ui(SZ.fact, 500),
     node: () => V.ui(30, 620),
     cap: () => V.ui(26, 450),
   };
@@ -357,17 +360,18 @@
     w = Math.max(w, (ICONS[fact.icon] ? 40 : 0) + ctx.measureText(fact.meta).width);
     return { lines, w };
   }
-  const FACT_LH = 46;
-  const cardH = (nLines) => CARD_PAD + 34 + 22 + nLines * FACT_LH - 12 + CARD_PAD;
+  const factLH = () => Math.round(46 * SZ.fact / 34);
+  const metaH = () => Math.round(34 * SZ.meta / 26);
+  const cardH = (nLines) => CARD_PAD + metaH() + 22 + nLines * factLH() - 12 + CARD_PAD;
   // h: the shared card height; a shorter fact's block (meta + text) is centred in it
   function cardModel(ctx, fact, x, y, w, o, lines, h) {
     const pad = CARD_PAD;
     const font = F.fact();
-    const lh = FACT_LH;
-    const metaH = 34, gapMF = 22;
+    const lh = factLH();
+    const mH = metaH(), gapMF = 22;
     const y0 = y + (h - cardH(lines.length)) / 2;
     const words = [];
-    lines.forEach((ln, li) => { for (const wd of ln) words.push({ s: wd.w, x: x + pad + wd.x, y: y0 + pad + metaH + gapMF + 30 + li * lh, w: wd.width }); });
+    lines.forEach((ln, li) => { for (const wd of ln) words.push({ s: wd.w, x: x + pad + wd.x, y: y0 + pad + mH + gapMF + Math.round(30 * SZ.fact / 34) + li * lh, w: wd.width }); });
     const spans = entitySpans(ctx, words, o.entity, font);
     // text runs per line: plain runs drawn as one string each, entity pieces split out so they can turn accent
     const runs = [];
@@ -391,7 +395,7 @@
       cur = { s: post, x: sp.x + sp.w, y: wd.y, ent: false };
     }
     flush();
-    return { x, y, w, h, pad, font, words, spans, runs, lines: lines.length, metaY: y0 + pad + 25 };
+    return { x, y, w, h, pad, font, words, spans, runs, lines: lines.length, metaY: y0 + pad + Math.round(25 * SZ.meta / 26) };
   }
 
   // 3./4. one fact card
@@ -457,6 +461,21 @@
     }
     return { pts, len, total: len[N], p0, c1, c2, p3 };
   }
+  // a rounded orthogonal route (down, across, down) sampled like curve(), drawn as a polyline
+  function route(p0, yRun, e, rad) {
+    const pts = [];
+    const dir = Math.sign(e.x - p0.x) || 1;
+    const rr = Math.min(rad, Math.abs(e.x - p0.x) / 2, (yRun - p0.y) / 2, (e.y - yRun) / 2);
+    const push = (x, y) => pts.push({ x, y });
+    for (let i = 0; i <= 12; i++) push(p0.x, lerp(p0.y, yRun - rr, i / 12));
+    for (let i = 1; i <= 8; i++) { const a = (i / 8) * Math.PI / 2; push(p0.x + dir * rr * (1 - Math.cos(a)), yRun - rr + rr * Math.sin(a)); }
+    for (let i = 1; i <= 16; i++) push(lerp(p0.x + dir * rr, e.x - dir * rr, i / 16), yRun);
+    for (let i = 1; i <= 8; i++) { const a = (i / 8) * Math.PI / 2; push(e.x - dir * rr + dir * rr * Math.sin(a), yRun + rr - rr * Math.cos(a)); }
+    for (let i = 1; i <= 8; i++) push(e.x, lerp(yRun + rr, e.y, i / 8));
+    const len = [0];
+    for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    return { pts, len, total: len[len.length - 1], p0, p3: e, poly: true };
+  }
   function at(cv, f) {
     const L = clamp(f) * cv.total, n = cv.pts.length - 1;
     let i = 1;
@@ -467,7 +486,7 @@
   }
   function strokeRange(ctx, cv, f0, f1) {
     if (f1 - f0 <= 1e-4) return;
-    if (f0 <= 0 && f1 >= 1) {            // whole curve: let the rasteriser do the bezier
+    if (f0 <= 0 && f1 >= 1 && !cv.poly) {            // whole curve: let the rasteriser do the bezier
       ctx.beginPath(); ctx.moveTo(cv.p0.x, cv.p0.y);
       ctx.bezierCurveTo(cv.c1.x, cv.c1.y, cv.c2.x, cv.c2.y, cv.p3.x, cv.p3.y);
       ctx.stroke();
@@ -492,6 +511,54 @@
       cb: curve(pb, { x: pb.x - h, y: pb.y }, { x: eb.x + h, y: eb.y }, eb),
       tp: S.tc + S.pl * 0.5,                       // the light arrives back at the cards
     };
+  }
+
+  // link:'query' — plain retrieval: the question's own word finds both facts. Lines run from that word in the question
+  // down to the matching word in each card; there is no entity node (that picture belongs to the graph tier).
+  function questionSpan(ctx, o, L) {
+    ctx.font = F.q(460);
+    const s = '“' + o.question + '”';
+    const words = s.split(' ');
+    const space = ctx.measureText(' ').width;
+    const ws = words.map((w) => ctx.measureText(w).width);
+    const textW = ws.reduce((a, b) => a + b, 0) + space * (words.length - 1);
+    let x = 960 - (textW + 38 + 26) / 2 + 38 + 26;
+    const ent = String(o.entity || '').toLowerCase();
+    for (let i = 0; i < words.length; i++) {
+      const j = words[i].toLowerCase().indexOf(ent);
+      if (ent && j >= 0) {
+        const pre = ctx.measureText(words[i].slice(0, j)).width;
+        return { x: x + pre, w: ctx.measureText(words[i].slice(j, j + ent.length)).width, y: L.qY };
+      }
+      x += ws[i] + space;
+    }
+    return { x: 960, w: 0, y: L.qY };
+  }
+  function queryGeometry(S, A, B, L, q) {
+    const p0 = { x: q.x + q.w / 2, y: q.y + 16 };
+    // land on the card's top edge, straight above the matching word (never through the card's text)
+    const end = (m) => { const sp = m.spans[0]; return { x: sp ? sp.x + sp.w / 2 : m.x + m.w / 2, y: m.y - 2 }; };
+    const ea = end(A), eb = end(B);
+    // run level in the gap between the tier row and the cards, so the lines never cross any text
+    const yRun = Math.round((L.tierY + 16 + Math.min(A.y, B.y)) / 2);
+    const mk = (e) => route(p0, yRun, e, 22);
+    return { ca: mk(ea), cb: mk(eb), q, tp: S.tc + S.pl * 0.5 };
+  }
+  function drawQueryPorts(ctx, t, S, P, GQ) {
+    const k = outCubic(prog(t, S.tc - 0.04, 0.12));
+    if (k <= 0) return;
+    ctx.save();
+    ctx.fillStyle = css(P.accent);
+    for (const cv of [GQ.ca, GQ.cb]) { ctx.beginPath(); ctx.arc(cv.p3.x, cv.p3.y, 6.5 * k, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  }
+  function drawQueryUnderline(ctx, t, S, P, q) {
+    const k = outExpo(prog(t, S.ln - 0.05, 0.18));
+    if (k <= 0) return;
+    ctx.save();
+    ctx.fillStyle = css(P.accent);
+    ctx.fillRect(q.x, q.y + 12, q.w * k, 4);
+    ctx.restore();
   }
 
   // 4. lines from each card converge on the entity node; the connection lights
@@ -662,12 +729,15 @@
     r.tiers = Array.isArray(o.tiers) && o.tiers.length >= 2 ? o.tiers : DEFAULTS.tiers;
     r.dur = Math.max(0.6, +r.dur || DEFAULTS.dur);
     r.top = +r.top >= 0 ? +r.top : DEFAULTS.top;
+    r.link = o.link === 'query' ? 'query' : 'node';
+    r.sizes = Object.assign({ tier: 28, meta: 26, fact: 34 }, o.sizes || {});
     return r;
   }
 
   function draw(ctx, t, o0) {
     if (t < 0) return;
     const o = opts(o0);
+    SZ = o.sizes;
     const th = V.theme(o.theme);
     const P = PAL[th.name] || PAL.dark;
     const S = schedule(o.dur);
@@ -693,17 +763,27 @@
     const A = cardModel(ctx, o.factA, MARGIN, L.cardY, cw, o, tA.lines, ch);
     const B = cardModel(ctx, o.factB, 1920 - MARGIN - cw, L.cardY, cw, o, tB.lines, ch);
     const G = geometry(S, A, B, L);
+    const Q = o.link === 'query' ? questionSpan(ctx, o, L) : null;
+    const GQ = Q ? queryGeometry(S, A, B, L, Q) : null;
     L.qMid = Math.round(G.cy + 20);
     const ansY = G.ny + NODE_R + (S.brief ? 94 : 130) * Math.min(1, L.k);
 
     drawQuestion(ctx, t, o, S, L, P);
     drawTiers(ctx, t, o, S, L, P);
-    drawLines(ctx, t, S, P, G);
-    drawCard(ctx, t, o, S, P, th, A, o.factA, -1, S.ca, G);
-    drawCard(ctx, t, o, S, P, th, B, o.factB, +1, S.cb, G);
-    drawPorts(ctx, t, S, P, G);
-    drawNode(ctx, t, o, S, P, th, G);
-    drawCaption(ctx, t, S, P, G);
+    if (GQ) {
+      drawCard(ctx, t, o, S, P, th, A, o.factA, -1, S.ca, G);
+      drawCard(ctx, t, o, S, P, th, B, o.factB, +1, S.cb, G);
+      drawLines(ctx, t, S, P, GQ);
+      drawQueryPorts(ctx, t, S, P, GQ);
+      drawQueryUnderline(ctx, t, S, P, Q);
+    } else {
+      drawLines(ctx, t, S, P, G);
+      drawCard(ctx, t, o, S, P, th, A, o.factA, -1, S.ca, G);
+      drawCard(ctx, t, o, S, P, th, B, o.factB, +1, S.cb, G);
+      drawPorts(ctx, t, S, P, G);
+      drawNode(ctx, t, o, S, P, th, G);
+      drawCaption(ctx, t, S, P, G);
+    }
     drawAnswer(ctx, t, o, S, P, th, ansY);
 
     ctx.restore();

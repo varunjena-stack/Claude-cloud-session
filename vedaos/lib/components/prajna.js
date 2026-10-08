@@ -2,7 +2,7 @@
 //
 // draw(ctx, t, o)  paints the Prajna card inside o.rect (window units, w 300, h 65 idle → 343 running).
 //   t is local run time in seconds: t < 0 → idle card ("Ready · No active mastery run"), 0..dur → the
-//   mastery run, > dur → done ("✓ 12 of 12", mastery 0.91).
+//   mastery run, > dur → done ("✓ 12 / 12", mastery 0.91).
 //   The run: a short curriculum build (12 rows cascade in) → 12 nodes foundational → advanced, each pass
 //   going RESEARCH → EMBED → VERIFY (live blackboard cards, a replace-sweep as each stage posts), its
 //   mastery = coverage × depth × saturation × competency converging live in the meter (tick at 0.85).
@@ -102,7 +102,7 @@
   function plan(dur, n, rerun) {
     dur = Math.max(0.6, +dur || 8);
     const T0 = clamp(dur * 0.065, 0.07, 0.6);                 // curriculum build
-    const tail = clamp(dur * 0.04, 0.04, 0.4);                // settle on "12 of 12" inside dur
+    const tail = clamp(dur * 0.04, 0.04, 0.4);                // settle on "12 / 12" inside dur
     const has = rerun >= 0 && rerun < n;
     const hold = has ? clamp(dur * 0.06, 0.24, 0.6) : 0;     // the below-threshold flash, readable even at 1.5 s
     const u = Math.max(0.02, (dur - T0 - tail - hold) / (n + (has ? RE_FRAC : 0)));
@@ -352,7 +352,7 @@
         const rk = seg.pass === 2 ? 1 : inOutCubic(prog(t, seg.s, seg.s + rollD));
         const prevK = c > 0 && seg.pass !== 2 ? P.segs[c - 1].node + 1 : k;
         const nf = V.ui(11, 600);
-        const tail = ` of ${n}`;
+        const tail = ` / ${n}`;   // the app's #pj-node-count reads "Node X / Y" (S68)
         ctx.font = font;
         const tailW = ctx.measureText(tail).width;
         const numW = Math.max(tnumW(ctx, String(k), nf), tnumW(ctx, String(prevK), nf));
@@ -365,7 +365,7 @@
           ctx.globalAlpha = A0 * rk;
           tnum(ctx, String(k), nx, hb + 6 * (1 - rk), nf, th.text, 'right');
         } else tnum(ctx, String(k), nx, hb, nf, th.text, 'right');
-        // at the end "Node" gives way to a sage check: "✓ 12 of 12"
+        // at the end "Node" gives way to a sage check: "✓ 12 / 12"
         const doneK = phase === 'done' ? prog(t, P.end, P.end + 0.14) : 0;
         const lx = R - tailW - numW;
         if (doneK < 1) {

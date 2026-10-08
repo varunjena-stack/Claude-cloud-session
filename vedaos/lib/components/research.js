@@ -132,7 +132,7 @@
     ro: (w) => V.ui(30, w),
     tick: () => V.ui(26, 500),
     title: () => V.ui(26, 550),
-    syn: (w) => V.display(48, w),
+    syn: (w, px = 48) => V.display(px, w),
   };
 
   // balanced wrap (greedy at the narrowest width that keeps the greedy line count); returns [[{w,x,width}]]
@@ -296,9 +296,9 @@
     L.cardX = L.px + 58;
     L.cardW = XR - L.cardX;
     L.cardPad = 44;
-    L.synLines = wrapBalanced(ctx, o.synthesis.text, L.cardW - L.cardPad * 2, F.syn(500));
-    L.synLH = 62;
-    L.cardH = L.cardPad + 26 + 30 + L.synLines.length * L.synLH - 14 + L.cardPad;
+    L.synLines = wrapBalanced(ctx, o.synthesis.text, L.cardW - L.cardPad * 2, F.syn(500, o.synPx));
+    L.synLH = Math.round(62 * o.synPx / 48);
+    L.cardH = L.cardPad + 26 + 30 + L.synLines.length * L.synLH - Math.round(14 * o.synPx / 48) + L.cardPad;
 
     // saturation readout + meter, under the right half
     L.roX = L.cardX;
@@ -750,19 +750,19 @@
     ctx.fillText(o.synthesis.title, x0 + L.cardPad + 54, ty);
     // text: words land one by one, settling in weight
     const wFinal = th.name === 'dark' ? 480 : 540;
-    const lineY = (li) => y0 + L.cardPad + 26 + 30 + 41 + li * L.synLH;
+    const lineY = (li) => y0 + L.cardPad + 26 + 30 + Math.round(41 * o.synPx / 48) + li * L.synLH;
     const n = L.synLines.reduce((a, l) => a + l.length, 0);
     const per = td / (n + 3);
     ctx.fillStyle = css(P.accent);
     if (t >= ts + (n - 1) * per + per * 4.5) {
-      ctx.font = F.syn(wFinal);
+      ctx.font = F.syn(wFinal, o.synPx);
       L.synLines.forEach((ln, li) => ctx.fillText(ln.map((wd) => wd.w).join(' '), x0 + L.cardPad, lineY(li)));
     } else {
       let i = 0;
       L.synLines.forEach((ln, li) => ln.forEach((wd) => {
         const lk = (t - (ts + i++ * per)) / (per * 4.5);
         if (lk <= 0) return;
-        ctx.font = F.syn(wFinal - Math.round((1 - outExpo(lk)) * (wFinal - 280) / 40) * 40); // ends exactly on wFinal
+        ctx.font = F.syn(wFinal - Math.round((1 - outExpo(lk)) * (wFinal - 280) / 40) * 40, o.synPx); // ends exactly on wFinal
         ctx.fillStyle = css(P.accent, smooth(lk * 1.7));
         ctx.fillText(wd.w, x0 + L.cardPad + wd.x, lineY(li) - (1 - outQuart(lk)) * 12);
       }));
@@ -779,6 +779,7 @@
     r.saturation = Array.isArray(o.saturation) && o.saturation.length ? o.saturation.map((v) => clamp(+v || 0)) : DEFAULTS.saturation;
     r.synthesis = Object.assign({}, DEFAULTS.synthesis, o.synthesis || {});
     r.dur = Math.max(0.6, +r.dur || DEFAULTS.dur);
+    r.synPx = (o.sizes && +o.sizes.syn) || 48; // synthesis text size (film passes 60 for phone legibility)
     r.top = +r.top >= 0 ? +r.top : DEFAULTS.top;
     // null = no threshold mark: Research Panther has a saturation monitor, not a stopping threshold
     r.threshold = o.threshold === null ? null : clamp(+r.threshold || DEFAULTS.threshold);
